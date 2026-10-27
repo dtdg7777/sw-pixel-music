@@ -1,0 +1,19 @@
+# 运行时与产物（不入库）
+node/
+node_modules/
+tmp/
+wv2-data/
+boot.log
+
+# 启动器与 WebView2 SDK 二进制
+PixelMusic.exe
+*.dll
+
+# 登录凭证：绝不能入库
+.cookie.txt
+
+# 通用
+Thumbs.db
+desktop.ini
+.DS_Store
+*.local.md
