@@ -10,6 +10,11 @@ const PORT = Number(process.env.PORT || 8123)
 const COOKIE_FILE = path.join(ROOT, '.cookie.txt')
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json; charset=utf-8' }
 const ALLOW_HOST = /(^|\.)(music\.126\.net|126\.net|127\.net|netease\.com)$/i
+const LEVELS = new Set(['standard', 'higher', 'exhigh', 'lossless', 'hires'])
+function levelOf (u) {
+  const v = u.searchParams.get('level') || 'exhigh'
+  return LEVELS.has(v) ? v : 'exhigh'
+}
 
 let cookie = ''
 let uid = null
@@ -111,7 +116,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/api/url') {
       const id = u.searchParams.get('id')
       if (!id) return json(res, 400, { error: 'missing id' })
-      const r = await api.song_url_v1(opts({ id, level: u.searchParams.get('level') || 'exhigh' }))
+      const r = await api.song_url_v1(opts({ id, level: levelOf(u) }))
       const d = (r.body.data || [])[0] || {}
       return json(res, 200, { id, url: d.url || null, br: d.br || 0, size: d.size || 0, type: d.type || null, fee: d.fee, code: d.code })
     }
@@ -119,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/stream') {
       const id = u.searchParams.get('id')
       if (!id) return json(res, 400, { error: 'missing id' })
-      const r = await api.song_url_v1(opts({ id, level: 'exhigh' }))
+      const r = await api.song_url_v1(opts({ id, level: levelOf(u) }))
       const d = (r.body.data || [])[0] || {}
       if (!d.url) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('no source') }
       return follow(d.url, req, res)
@@ -160,6 +165,36 @@ const server = http.createServer(async (req, res) => {
       nickname = ''
       try { fs.unlinkSync(COOKIE_FILE) } catch (e) {}
       return json(res, 200, { ok: true, loggedIn: false })
+    }
+
+    // 红心：like=1 收藏，like=0 取消
+    if (u.pathname === '/api/like') {
+      if (!cookie) return json(res, 401, { error: 'not logged in' })
+      const id = u.searchParams.get('id')
+      if (!id) return json(res, 400, { error: 'missing id' })
+      const like = u.searchParams.get('like') === '0' ? 'false' : 'true'
+      const r = await api.like(opts({ id, like }))
+      return json(res, 200, { ok: (r.body && r.body.code) === 200, code: r.body && r.body.code, like: like === 'true' })
+    }
+
+    // 我喜欢的歌曲 id 列表（无序），用于点亮红心
+    if (u.pathname === '/api/likelist') {
+      if (!cookie) return json(res, 401, { error: 'not logged in' })
+      if (!uid) await refreshMe()
+      if (!uid) return json(res, 401, { error: 'cookie 已失效' })
+      const r = await api.likelist(opts({ uid }))
+      return json(res, 200, { ids: (r.body && r.body.ids) || [] })
+    }
+
+    // 听歌打卡：time 为已播放秒数，sourceid 是来源歌单（拿不到就 0）
+    if (u.pathname === '/api/scrobble') {
+      if (!cookie) return json(res, 200, { ok: false, skipped: 'not logged in' })
+      const id = u.searchParams.get('id')
+      if (!id) return json(res, 400, { error: 'missing id' })
+      const time = Math.max(0, Math.min(3600, Number(u.searchParams.get('time') || 0)))
+      const sourceid = u.searchParams.get('sourceid') || '0'
+      const r = await api.scrobble(opts({ id, time: String(time), sourceid: String(sourceid) }))
+      return json(res, 200, { ok: (r.body && r.body.code) === 200, code: r.body && r.body.code })
     }
 
     if (u.pathname === '/api/lyric') {
